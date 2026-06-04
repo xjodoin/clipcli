@@ -107,6 +107,55 @@ class ClipPlanResult(BaseModel):
     clips: list[ClipPlan]
 
 
+class PromoAsset(BaseModel):
+    """A visual shown instead of source footage: a real logo, a fetched/local image, or a generated one."""
+
+    kind: Literal["generate", "logo", "url", "file"]
+    value: str
+    """Image prompt (generate), website domain (logo), direct image URL (url), or local path (file)."""
+    fit: Literal["cover", "card"] | None = None
+    """Override framing: cover fills the frame, card centers on a backdrop. Defaults by kind."""
+    card_color: str | None = None
+    """Card backdrop color (hex like 0xFFFFFF); defaults to white for file, brand-dark otherwise."""
+
+
+class PromoScene(BaseModel):
+    """One shot of a marketing montage: a source range, a voiceover line, and a key message."""
+
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+    vo: str = ""
+    key_message: str = ""
+    duration_hint: float | None = Field(default=None, gt=0)
+    asset: PromoAsset | None = None
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "PromoScene":
+        if self.end <= self.start:
+            raise ValueError("scene end must be after start")
+        return self
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+
+class PromoPlan(BaseModel):
+    """A short marketing montage plan: shots, voiceover script, key messages, music."""
+
+    title: str
+    tagline: str = ""
+    language: str = "en"
+    target_seconds: float = Field(default=30.0, gt=0)
+    music_query: str = "uplifting corporate technology music"
+    vo_style: str = ""
+    scenes: list[PromoScene]
+
+    @property
+    def voiceover_script(self) -> str:
+        return " ".join(scene.vo.strip() for scene in self.scenes if scene.vo.strip())
+
+
 class SeedDanceVideo(BaseModel):
     id: str | None = None
     status: str | None = None
@@ -120,6 +169,7 @@ class RenderMode(str):
 
 
 OutputMode = Literal["vertical", "vertical_auto", "vertical_left", "vertical_right", "original"]
+PlannerBackend = Literal["gemini", "gemma"]
 RenderStyle = Literal["viral", "clean"]
 SoundSource = Literal["freesound"]
 SoundIntensity = Literal["low", "medium", "high"]

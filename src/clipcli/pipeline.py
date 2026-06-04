@@ -9,7 +9,17 @@ from .captions import write_ass_captions
 from . import ffmpeg
 from .fallback import fallback_plan_from_transcript
 from .gemini import DEFAULT_GEMINI_MODEL, parse_plan_json, plan_clips_with_gemini
-from .models import ClipPlan, ClipPlanResult, OutputMode, RenderStyle, SoundIntensity, SoundSource, Transcript
+from .gemma import DEFAULT_GEMMA_MODEL, plan_clips_with_gemma
+from .models import (
+    ClipPlan,
+    ClipPlanResult,
+    OutputMode,
+    PlannerBackend,
+    RenderStyle,
+    SoundIntensity,
+    SoundSource,
+    Transcript,
+)
 from .seedance import SeedDanceClient
 from .sound import find_sound_bed
 from .transcribe import load_transcript, save_transcript, transcribe_with_whisperx
@@ -25,7 +35,9 @@ class GenerateOptions:
     mode: OutputMode = "vertical"
     crop_x: float | None = None
     render_style: RenderStyle = "viral"
+    planner: PlannerBackend = "gemini"
     gemini_model: str = DEFAULT_GEMINI_MODEL
+    gemma_model: str = DEFAULT_GEMMA_MODEL
     transcript_path: Path | None = None
     plan_path: Path | None = None
     whisper_model: str = "large-v3"
@@ -227,6 +239,18 @@ def _load_or_transcribe(options: GenerateOptions, work_dir: Path) -> Transcript:
 def _load_or_plan(options: GenerateOptions, transcript: Transcript) -> ClipPlanResult:
     if options.plan_path:
         plan = parse_plan_json(options.plan_path.read_text())
+    elif options.planner == "gemma":
+        # Local planning listens to the source audio so a noisy transcript
+        # doesn't mislead clip selection.
+        plan = plan_clips_with_gemma(
+            transcript,
+            clips=options.clips,
+            min_seconds=options.min_seconds,
+            max_seconds=options.max_seconds,
+            model=options.gemma_model,
+            source=options.source.expanduser().resolve(),
+            work_dir=options.output_dir / "work",
+        )
     else:
         plan = plan_clips_with_gemini(
             transcript,

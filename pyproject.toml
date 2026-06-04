@@ -1,14 +1,14 @@
 [project]
 name = "clipcli"
 version = "0.1.0"
-description = "Local-first AI video clipping pipeline using ffmpeg, WhisperX, Gemini, Freesound, and SeedDance."
+description = "Local-first AI video clipping pipeline using ffmpeg, WhisperX, Gemini or Gemma 4 on MLX, Freesound, and SeedDance."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [
   { name = "xjodoin" },
 ]
-keywords = ["video", "clips", "shorts", "ffmpeg", "whisperx", "gemini", "seedance"]
+keywords = ["video", "clips", "shorts", "ffmpeg", "whisperx", "gemini", "gemma", "mlx", "seedance"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -35,9 +35,23 @@ dependencies = [
 transcribe = [
   "whisperx>=3.3.0",
 ]
+local = [
+  # Local multimodal planning: Gemma 4 (image + audio) on Apple Silicon via MLX.
+  # Needs transformers 5+ / torch 2.7+, which conflicts with the chatterbox pins
+  # in [tts]; prefer --vo-provider gemini alongside --planner gemma.
+  "mlx-vlm>=0.6.1",
+]
 audio = [
   "deepfilternet>=0.5.6",
   "soundfile>=0.13.0",
+]
+tts = [
+  "chatterbox-tts>=0.1.4",
+  # chatterbox imports LlamaModel directly and pins torch 2.6; keep companions aligned.
+  "transformers>=4.46,<5",
+  "torchvision>=0.21,<0.22",
+  # chatterbox's perth watermarker still imports pkg_resources, removed in setuptools 81+.
+  "setuptools<81",
 ]
 dev = [
   "pytest>=8.0.0",

@@ -186,6 +186,79 @@ def _viral_hook_text(clip: ClipPlan) -> str:
     return f"POV: {text.upper()}"
 
 
+def write_promo_overlays(
+    key_messages: list[tuple[float, float, str]],
+    output: Path,
+    *,
+    width: int,
+    height: int,
+    title: str = "",
+    tagline: str = "",
+    end_start: float | None = None,
+    end_end: float | None = None,
+) -> Path:
+    """Write the promo ASS overlay: per-scene key messages plus an end card."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    base = min(width, height)
+    key_size = max(28, int(base * 0.058))
+    title_size = max(40, int(base * 0.085))
+    tagline_size = max(24, int(base * 0.042))
+    lines = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        f"PlayResX: {width}",
+        f"PlayResY: {height}",
+        "",
+        "[V4+ Styles]",
+        (
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+            "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+            "Alignment, MarginL, MarginR, MarginV, Encoding"
+        ),
+        (
+            f"Style: Key,Arial,{key_size},&H00FFFFFF,&H0000FFFF,&H00101010,&H66000000,"
+            f"-1,0,0,0,100,100,1,0,1,4,2,2,{int(width * 0.08)},{int(width * 0.08)},{int(height * 0.085)},1"
+        ),
+        (
+            f"Style: Title,Arial,{title_size},&H00FFFFFF,&H0000FFFF,&H00101010,&H66000000,"
+            f"-1,0,0,0,100,100,2,0,1,0,0,5,{int(width * 0.06)},{int(width * 0.06)},0,1"
+        ),
+        (
+            f"Style: Tagline,Arial,{tagline_size},&H00E6D7A8,&H0000FFFF,&H00101010,&H66000000,"
+            f"0,0,0,0,100,100,1,0,1,0,0,5,{int(width * 0.06)},{int(width * 0.06)},0,1"
+        ),
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ]
+    for start, end, text in key_messages:
+        message = " ".join(text.split())
+        if not message or end <= start:
+            continue
+        lines.append(
+            f"Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Key,,0,0,0,,"
+            f"{{\\fad(180,180)}}{_escape_ass(message.upper())}"
+        )
+    if end_start is not None and end_end is not None and end_end > end_start:
+        if title.strip():
+            offset = int(height * 0.05)
+            lines.append(
+                f"Dialogue: 1,{_ass_time(end_start)},{_ass_time(end_end)},Title,,0,0,0,,"
+                f"{{\\fad(260,0)\\pos({width // 2},{height // 2 - offset})}}"
+                f"{_escape_ass(title.strip().upper())}"
+            )
+        if tagline.strip():
+            offset = int(height * 0.06)
+            lines.append(
+                f"Dialogue: 1,{_ass_time(min(end_end, end_start + 0.35))},{_ass_time(end_end)},Tagline,,0,0,0,,"
+                f"{{\\fad(260,0)\\pos({width // 2},{height // 2 + offset})}}"
+                f"{_escape_ass(tagline.strip())}"
+            )
+    output.write_text("\n".join(lines) + "\n")
+    return output
+
+
 def _ass_time(seconds: float) -> str:
     centiseconds = int(round(seconds * 100))
     total_seconds, cs = divmod(centiseconds, 100)

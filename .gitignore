@@ -12,3 +12,4 @@ build/
 outputs/
 work/
 *.log
+.claude/

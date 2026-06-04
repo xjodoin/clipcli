@@ -1,6 +1,6 @@
 # clipcli
 
-`clipcli` is a local-first command line pipeline for turning long videos into short-form clips. It combines transcription, AI clip planning, vertical rendering, captions, optional speech enhancement, optional licensed sound beds, and optional SeedDance b-roll generation.
+`clipcli` is a local-first command line pipeline for turning long videos into short-form clips and marketing montages. It combines transcription, AI clip planning, vertical rendering, captions, AI voiceover, optional speech enhancement, optional licensed music and sound beds, and optional SeedDance b-roll generation.
 
 It is designed for creators and teams who want a practical, scriptable workflow instead of a hosted editing product.
 
@@ -8,22 +8,27 @@ It is designed for creators and teams who want a practical, scriptable workflow 
 
 - Transcribe source videos with WhisperX.
 - Ask Gemini to select source-grounded clip ranges and metadata.
+- Or plan fully on-device with `--planner gemma`: Gemma 4 12B on MLX watches sampled keyframes and listens to the soundtrack (native image + audio inputs) — no upload, no API key.
+- Build ~30s marketing montages: the planner watches the video, picks shots, writes a voiceover script and on-screen key messages (`clipcli promo`).
+- Ground promo planning in a production document (`--doc` run of show / brief) and reuse its embedded images (logos, banners) as scene assets.
+- Mix branded scene assets into montages: fetch real logos/images online or generate visuals with Nano Banana 2 (Gemini image models).
+- Synthesize the voiceover with Gemini TTS (or macOS `say`) and cut scene lengths to the narration.
 - Fall back to deterministic transcript-based clip planning when AI planning returns no clips.
 - Render vertical social clips with ffmpeg.
 - Auto-crop around the speaker with face detection.
 - Burn in ASS captions from word-level transcript timings.
 - Enhance rough speech audio with DeepFilterNet plus ffmpeg mastering.
-- Search Freesound for licensed sound beds and mix them quietly under speech with sidechain ducking.
+- Search Freesound for licensed music and sound beds and mix them with sidechain ducking.
 - Generate SeedDance 2.0 b-roll through fal.ai or Ark/Volcengine.
 - Reuse transcript and plan artifacts so expensive stages do not need to run every time.
 
 ## How It Works
 
 ```text
-source video
+source video (+ optional production document)
   -> ffmpeg audio extraction
   -> WhisperX transcript
-  -> Gemini clip plan, or fallback plan
+  -> Gemini (cloud) or Gemma 4 on MLX (local) clip plan, or fallback plan
   -> captions and optional b-roll references
   -> ffmpeg render
   -> optional audio enhancement
@@ -48,7 +53,8 @@ outputs/my-video/
 - ffmpeg and ffprobe
 - Optional: WhisperX for transcription
 - Optional: DeepFilterNet for speech enhancement
-- Optional: Gemini API key for AI clip planning
+- Optional: Gemini API key for cloud AI clip planning
+- Optional: Apple Silicon + `pip install -e '.[local]'` (mlx-vlm) for local Gemma 4 multimodal planning
 - Optional: Freesound API key for sound-bed search
 - Optional: fal.ai or Ark/Volcengine credentials for SeedDance b-roll
 
@@ -137,6 +143,85 @@ clipcli generate input.mp4 \
 ```
 
 PyTorch may report that `mps` is available, but WhisperX uses faster-whisper/CTranslate2 and rejects `device="mps"` in this environment.
+
+## Marketing Promo Montage
+
+When you need a marketing edit instead of raw clips — a ~30 second montage with music, voiceover, and key messages — use `promo`:
+
+```bash
+clipcli promo input.mp4 --out outputs/promo --duration 30 --language fr-CA
+```
+
+The promo pipeline:
+
+1. Lets the planner watch the actual footage (not just the transcript) and plan visually strong shots — Gemini gets a small uploaded proxy; `--planner gemma` samples keyframes and the audio track and reasons over them fully on-device.
+2. Returns a promo plan: scenes with source timestamps, a voiceover line and an on-screen key message per scene, an end-card title/tagline, and a music search query.
+3. Synthesizes the voiceover per scene, then derives each scene's duration from its narration.
+4. Searches Freesound for an energetic, montage-length music track (ambient soundscapes are rejected), loudness-normalizes it, and mixes it under the voiceover with gentle sidechain ducking.
+5. Cuts the shots — or renders asset scenes (fetched logos, document images, Nano Banana 2 generations) — crossfades them, burns in key messages and the end card.
+
+Useful options:
+
+```bash
+clipcli promo input.mp4 --out outputs/promo \
+  --duration 30 \
+  --scenes 6 \
+  --mode original \            # or vertical / vertical_left / vertical_right
+  --language fr-CA \           # voiceover + key message language
+  --doc "Run of Show.docx" \   # production document grounding (names, partners, messaging)
+  --vo-provider gemini \       # default; or: chatterbox (local), say (offline)
+  --music-query "uplifting corporate technology" \
+  --music-volume 0.45
+```
+
+### Document grounding and scene assets
+
+`--doc` accepts a production document (`.docx`, `.md`, `.txt`) — a run of show, a brief, a script. Its text becomes authoritative planning context (real names, titles, partners, program order), and images embedded in a `.docx` (logos, banners) are extracted and offered to the planner as scene assets.
+
+Plans may give any scene an `asset` instead of source footage:
+
+```jsonc
+{"start": 0, "end": 5, "vo": "…", "key_message": "PARTENAIRE",
+ "asset": {"kind": "generate|logo|url|file", "value": "image prompt | domain | URL | local path",
+            "fit": "cover|card", "card_color": "0xFFFFFF"}}
+```
+
+`generate` creates the visual with Nano Banana 2 (`gemini-3-pro-image`); `logo`/`url` fetch online; `file` uses a local image (for example one extracted from the document). Generated visuals fill the frame with a slow push-in; logos render centered on a clean card. Assets are cached in `work/assets/`, so `--plan` re-renders don't regenerate or refetch.
+
+Voiceover providers:
+
+- `gemini` (default, best quality): Gemini TTS prebuilt voices, styled by the plan's narrator direction. Pick a voice with `--vo-voice` (for example `Charon`, `Kore`, `Puck`).
+- `chatterbox` (local/offline fallback): [Chatterbox Multilingual](https://huggingface.co/ResembleAI/chatterbox) by Resemble AI — MIT-licensed, runs locally, supports French and 20+ languages, with emotion intensity control (`--vo-exaggeration`, 0.3 calm to 0.7+ energetic). Install with `pip install -e '.[tts]'`.
+
+  Chatterbox's built-in voice is an English speaker. For non-English voiceover, clipcli automatically drops classifier-free guidance to reduce the English accent, but the natural-sounding option is to clone a native speaker: pass `--vo-voice path/to/reference.wav`, or `--vo-voice source:120-138` to extract (and denoise, when DeepFilterNet is installed) a reference straight from the input video. Only publish cloned voices with the speaker's permission. Truncated takes are detected and retried automatically.
+- `say`: offline macOS system voices.
+
+Reuse or hand-edit a plan, then re-render without calling Gemini planning again:
+
+```bash
+clipcli promo input.mp4 --out outputs/promo --plan outputs/promo/promo-plan.json
+```
+
+Skip the proxy upload and plan from a transcript only:
+
+```bash
+clipcli promo input.mp4 --out outputs/promo --transcript transcript.json --no-video-planning
+```
+
+### Local planning with Gemma 4 (MLX)
+
+On Apple Silicon you can keep planning entirely on-device. [Gemma 4 12B](https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12b/) takes images and raw audio natively (encoder-free), so the planner *watches* sampled keyframes and *listens* to the soundtrack without uploading anything:
+
+```bash
+pip install -e '.[local]'   # mlx-vlm; needs transformers 5+, conflicts with [tts] pins
+clipcli promo input.mp4 --out outputs/promo --planner gemma --language fr-CA
+```
+
+Audio is understood two ways at once: WhisperX provides the full-timeline text transcript (auto-generated and cached in `work/transcript.json` when none is passed), while Gemma itself listens to the soundtrack in 30-second clips — the model's per-clip hearing limit — and writes a timestamped digest of announcements, speakers, and energy. The planning pass then reads frames + transcript + digest together, so the montage anchors on what the video actually announces even when the transcript is garbled.
+
+The first run downloads `mlx-community/gemma-4-12B-it-4bit` (~9 GB; ~8 GB RAM while planning). Pick another quantization with `--gemma-model mlx-community/gemma-4-12B-it-8bit`. `--planner gemma` also works for `generate` and `plan`, where the same listening digest grounds clip selection when the WhisperX transcript is noisy.
+
+Artifacts land in the output directory: `promo.mp4`, `promo-plan.json`, plus `work/` with the proxy, per-scene segments, voiceover WAVs, scene assets (`work/assets/`), document media (`work/doc-media/`), the music bed and its license metadata.
 
 ## Render Modes
 
