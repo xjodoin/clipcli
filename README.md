@@ -11,7 +11,7 @@ It is designed for creators and teams who want a practical, scriptable workflow 
 - Or plan fully on-device with `--planner gemma`: Gemma 4 12B on MLX watches sampled keyframes and listens to the soundtrack (native image + audio inputs) — no upload, no API key.
 - Build ~30s marketing montages: the planner watches the video, picks shots, writes a voiceover script and on-screen key messages (`clipcli promo`).
 - Ground promo planning in a production document (`--doc` run of show / brief) and reuse its embedded images (logos, banners) as scene assets.
-- Mix branded scene assets into montages: fetch real logos/images online or generate visuals with Nano Banana 2 (Gemini image models).
+- Mix branded scene assets into montages: fetch real logos/images online, generate stills with Nano Banana 2 (Gemini image models), or generate animated b-roll clips with SeedDance 2.0 (text- or image-to-video).
 - Synthesize the voiceover with Gemini TTS (or macOS `say`) and cut scene lengths to the narration.
 - Fall back to deterministic transcript-based clip planning when AI planning returns no clips.
 - Render vertical social clips with ffmpeg.
@@ -182,11 +182,11 @@ Plans may give any scene an `asset` instead of source footage:
 
 ```jsonc
 {"start": 0, "end": 5, "vo": "…", "key_message": "PARTENAIRE",
- "asset": {"kind": "generate|logo|url|file", "value": "image prompt | domain | URL | local path",
-            "fit": "cover|card", "card_color": "0xFFFFFF", "accent": true}}
+ "asset": {"kind": "generate|video|logo|url|file", "value": "image prompt | motion prompt | domain | URL | local path",
+            "fit": "cover|card", "card_color": "0xFFFFFF", "accent": true, "image": "seed-frame.png"}}
 ```
 
-`generate` creates the visual with Nano Banana 2 (`gemini-3-pro-image`); `logo`/`url` fetch online; `file` uses a local image — the cleanest path for **real partner logos**: drop the official files somewhere and reference them with `kind: file`, `fit: card`, and `card_color: 0xFFFFFF`. Generated visuals fill the frame with a slow push-in; card-framed logos render centered on the card with a thin brand accent line beneath (set `accent: false` to drop it, e.g. for the main event logo). Assets are cached in `work/assets/`, so `--plan` re-renders don't regenerate or refetch.
+`generate` creates a still with Nano Banana 2 (`gemini-3-pro-image`); `video` generates an animated b-roll clip with SeedDance 2.0 (set `image` to a still and SeedDance animates that exact frame — image-to-video); `logo`/`url` fetch online; `file` uses a local image — the cleanest path for **real partner logos**: drop the official files somewhere and reference them with `kind: file`, `fit: card`, and `card_color: 0xFFFFFF`. Generated stills fill the frame with a slow push-in; video clips are looped/trimmed to the scene length and stripped of audio; card-framed logos render centered with a thin brand accent line beneath (set `accent: false` to drop it). Assets are cached in `work/assets/`, so `--plan` re-renders don't regenerate or refetch. SeedDance needs `FAL_KEY` (or Ark credentials) — see the b-roll section.
 
 Voiceover providers:
 

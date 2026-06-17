@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -9,7 +10,8 @@ from .captions import write_promo_overlays
 from .document import load_document
 from .gemini import DEFAULT_GEMINI_MODEL, parse_promo_json, plan_promo_with_gemini
 from .gemma import DEFAULT_GEMMA_MODEL, plan_promo_with_gemma
-from .models import OutputMode, PlannerBackend, PromoPlan, PromoScene, RenderStyle, Transcript
+from .models import BrollPrompt, OutputMode, PlannerBackend, PromoPlan, PromoScene, RenderStyle, Transcript
+from .seedance import SeedDanceClient
 from .sound import find_music
 from .transcribe import load_transcript
 from .tts import DEFAULT_TTS_MODEL, VoiceoverLine, VoiceoverProvider, synthesize_voiceover_lines
@@ -213,6 +215,28 @@ def _render_scene_segment(
             mode=options.mode,
             crop_x=options.crop_x,
         )
+    if asset.kind == "video":
+        try:
+            return ffmpeg.render_video_segment(
+                _resolve_video_asset(asset, index, work_dir, options.mode),
+                output,
+                duration=item.duration,
+                mode=options.mode,
+                crop_x=options.crop_x,
+            )
+        except Exception as exc:
+            if not asset.image:
+                raise
+            # SeedDance unavailable (e.g. exhausted balance): fall back to the
+            # seed still as a Ken Burns cover so the montage still renders.
+            print(f"[promo] SeedDance failed for scene {index} ({exc}); using seed still.", file=sys.stderr)
+            return ffmpeg.render_image_segment(
+                Path(asset.image).expanduser().resolve(),
+                output,
+                duration=item.duration,
+                mode=options.mode,
+                fit="cover",
+            )
     # Real logos stay crisp on a card; generated visuals fill the frame.
     fit = asset.fit or ("cover" if asset.kind == "generate" else "card")
     # Document-extracted logos usually sit on white; fetched ones on transparency.
@@ -262,6 +286,39 @@ def _resolve_asset(asset, index: int, work_dir: Path) -> Path:
             shutil.copyfile(source, output)
         return output
     return assets.fetch_image_url(asset.value, output)
+
+
+_MODE_RATIO = {
+    "original": "16:9",
+    "vertical": "9:16",
+    "vertical_auto": "9:16",
+    "vertical_left": "9:16",
+    "vertical_right": "9:16",
+}
+
+
+def _resolve_video_asset(asset, index: int, work_dir: Path, mode: OutputMode) -> Path:
+    """Generate (once, then cache) a SeedDance clip for a video scene asset."""
+    output = work_dir / "assets" / f"{index:02d}.mp4"
+    if output.exists():
+        return output
+    image_url = None
+    if asset.image:
+        seed = Path(asset.image).expanduser().resolve()
+        if not seed.exists():
+            raise FileNotFoundError(f"Seed image not found: {seed}")
+        # Seeding with the approved still gives SeedDance the exact composition
+        # to animate (image-to-video). Downscale first — fal rejects large
+        # inline data URIs with a 403.
+        image_url = ffmpeg.compact_image_data_uri(seed, work_dir / "assets" / f"{index:02d}-seed")
+    client = SeedDanceClient()
+    video = client.create_video(
+        BrollPrompt(at=0.0, duration=8.0, prompt=asset.value, image_url=image_url),
+        ratio=_MODE_RATIO.get(mode, "16:9"),
+        resolution="1080p",
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    return client.download(video, output)
 
 
 def _transcribe_for_gemma(source: Path, work_dir: Path) -> Transcript | None:

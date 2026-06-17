@@ -93,12 +93,12 @@ The JSON schema is:
       "end": 16.1,
       "vo": "one voiceover sentence",
       "key_message": "ON-SCREEN KEY MESSAGE",
-      "asset": {"kind": "generate|logo|url|file", "value": "image prompt, organization website domain, direct image URL, or provided local file path"}
+      "asset": {"kind": "generate|video|logo|url|file", "value": "image prompt, SeedDance motion prompt, organization website domain, direct image URL, or provided local file path"}
     }
   ]
 }
 
-The "asset" field is optional: when present the scene shows that visual instead of source footage. Use it sparingly — partner/branding cards ("logo" with the organization's website domain, or "file" with the exact path of a provided document image) or a diagram/visual the footage cannot show ("generate" with a detailed image prompt). Never use "generate" for a real organization's logo.
+The "asset" field is optional: when present the scene shows that visual instead of source footage. Use it sparingly — partner/branding cards ("logo" with the organization's website domain, or "file" with the exact path of a provided document image), a still diagram/visual the footage cannot show ("generate" with a detailed image prompt), or an animated b-roll clip ("video" with a SeedDance motion prompt). Never use "generate" or "video" for a real organization's logo.
 """
 
 

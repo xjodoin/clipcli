@@ -47,6 +47,13 @@ def synthesize_voiceover_lines(
         cleaned = " ".join(text.split())
         if not cleaned:
             raise VoiceoverError(f"Voiceover line {index} is empty.")
+        # Reuse a previously synthesized take when the line is unchanged, so
+        # re-renders (e.g. swapping a scene asset) don't re-bill every TTS call.
+        cache_key = output.with_suffix(".txt")
+        signature = f"{provider}|{voice}|{style}|{language}|{model}|{exaggeration}|{cleaned}"
+        if output.exists() and cache_key.exists() and cache_key.read_text() == signature:
+            results.append(VoiceoverLine(text=cleaned, path=output, duration=ffmpeg.probe_duration(output)))
+            continue
         if provider == "chatterbox":
             _chatterbox_tts(
                 chatterbox,
@@ -62,6 +69,7 @@ def synthesize_voiceover_lines(
             _say_tts(cleaned, output, voice=voice)
         else:
             raise VoiceoverError(f"Unsupported voiceover provider: {provider}")
+        cache_key.write_text(signature)
         results.append(VoiceoverLine(text=cleaned, path=output, duration=ffmpeg.probe_duration(output)))
     return results
 

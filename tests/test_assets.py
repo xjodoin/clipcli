@@ -121,6 +121,145 @@ def test_render_scene_segment_uses_image_for_asset_scenes(monkeypatch, tmp_path:
     assert captured["duration"] == 5.0
 
 
+def test_resolve_video_asset_seeds_image_to_video(monkeypatch, tmp_path: Path) -> None:
+    seed = tmp_path / "still.png"
+    seed.write_bytes(b"PNG")
+    captured = {}
+
+    class FakeClient:
+        def create_video(self, prompt, *, ratio, resolution):
+            captured["prompt"] = prompt
+            captured["ratio"] = ratio
+            captured["resolution"] = resolution
+            return "video-object"
+
+        def download(self, video, output):
+            captured["download"] = (video, output)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"MP4")
+            return output
+
+    monkeypatch.setattr(promo, "SeedDanceClient", lambda *a, **k: FakeClient())
+    seeds = {}
+
+    def fake_compact(source, work_path, **kwargs):
+        seeds["source"] = source
+        seeds["work_path"] = work_path
+        return f"data:image/jpeg;base64,SEED::{source}"
+
+    monkeypatch.setattr(promo.ffmpeg, "compact_image_data_uri", fake_compact)
+
+    asset = PromoAsset(kind="video", value="slow cinematic push-in", image=str(seed))
+    output = promo._resolve_video_asset(asset, 4, tmp_path / "work", "original")
+
+    assert output == tmp_path / "work" / "assets" / "04.mp4"
+    assert captured["ratio"] == "16:9"
+    assert captured["resolution"] == "1080p"
+    assert captured["prompt"].prompt == "slow cinematic push-in"
+    # The seed is downscaled (not sent full-res) to stay under fal's inline cap.
+    assert captured["prompt"].image_url.startswith("data:image/jpeg;base64,SEED::")
+    assert seeds["source"] == seed.resolve()
+
+
+def test_resolve_video_asset_caches(monkeypatch, tmp_path: Path) -> None:
+    existing = tmp_path / "work" / "assets" / "04.mp4"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_bytes(b"CACHED")
+
+    def forbid_client(*args, **kwargs):
+        raise AssertionError("cached SeedDance clip must not regenerate")
+
+    monkeypatch.setattr(promo, "SeedDanceClient", forbid_client)
+    asset = PromoAsset(kind="video", value="motion")
+
+    assert promo._resolve_video_asset(asset, 4, tmp_path / "work", "vertical") == existing
+
+
+def test_render_scene_segment_uses_video_for_video_assets(monkeypatch, tmp_path: Path) -> None:
+    captured = {}
+
+    def fake_video_segment(clip, output, *, duration, mode, crop_x):
+        captured["clip"] = clip
+        captured["duration"] = duration
+        return output
+
+    monkeypatch.setattr(ffmpeg, "render_video_segment", fake_video_segment)
+    monkeypatch.setattr(
+        promo, "_resolve_video_asset", lambda asset, index, work_dir, mode: tmp_path / "assets" / "01.mp4"
+    )
+    monkeypatch.setattr(
+        ffmpeg, "render_montage_segment",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("video assets must not cut footage")),
+    )
+
+    scene = PromoScene(start=0.0, end=5.0, vo="x", asset=PromoAsset(kind="video", value="motion"))
+    item = _TimedScene(scene=scene, start=0.0, duration=5.0)
+    options = PromoOptions(source=tmp_path / "in.mp4", output_dir=tmp_path)
+
+    promo._render_scene_segment(item, 1, tmp_path / "in.mp4", tmp_path / "work", options)
+
+    assert captured["clip"] == tmp_path / "assets" / "01.mp4"
+    assert captured["duration"] == 5.0
+
+
+def test_video_asset_falls_back_to_seed_still_on_failure(monkeypatch, tmp_path: Path) -> None:
+    seed = tmp_path / "still.png"
+    seed.write_bytes(b"PNG")
+    captured = {}
+
+    def boom(asset, index, work_dir, mode):
+        raise RuntimeError("User is locked. Reason: Exhausted balance.")
+
+    def fake_image_segment(image, output, *, duration, mode, fit, **kwargs):
+        captured["image"] = image
+        captured["fit"] = fit
+        return output
+
+    def forbid_video(*args, **kwargs):
+        raise AssertionError("must not render video after generation failed")
+
+    monkeypatch.setattr(promo, "_resolve_video_asset", boom)
+    monkeypatch.setattr(ffmpeg, "render_image_segment", fake_image_segment)
+    monkeypatch.setattr(ffmpeg, "render_video_segment", forbid_video)
+
+    scene = PromoScene(
+        start=0.0, end=5.0, vo="x", asset=PromoAsset(kind="video", value="motion", image=str(seed))
+    )
+    item = _TimedScene(scene=scene, start=0.0, duration=5.0)
+    options = PromoOptions(source=tmp_path / "in.mp4", output_dir=tmp_path)
+
+    promo._render_scene_segment(item, 9, tmp_path / "in.mp4", tmp_path / "work", options)
+
+    # Generation failed but a seed still exists -> render it as a cover instead.
+    assert captured["image"] == seed.resolve()
+    assert captured["fit"] == "cover"
+
+
+def test_video_asset_without_seed_reraises_on_failure(monkeypatch, tmp_path: Path) -> None:
+    def boom(asset, index, work_dir, mode):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(promo, "_resolve_video_asset", boom)
+    scene = PromoScene(start=0.0, end=5.0, vo="x", asset=PromoAsset(kind="video", value="motion"))
+    item = _TimedScene(scene=scene, start=0.0, duration=5.0)
+    options = PromoOptions(source=tmp_path / "in.mp4", output_dir=tmp_path)
+
+    with pytest.raises(RuntimeError, match="network down"):
+        promo._render_scene_segment(item, 9, tmp_path / "in.mp4", tmp_path / "work", options)
+
+
+def test_render_video_segment_loops_and_strips_audio(monkeypatch, tmp_path: Path) -> None:
+    commands = []
+    monkeypatch.setattr(ffmpeg, "run", lambda command, timeout=None: commands.append(command))
+
+    ffmpeg.render_video_segment(tmp_path / "broll.mp4", tmp_path / "seg.mp4", duration=5.0)
+
+    command = commands[0]
+    assert "-stream_loop" in command and command[command.index("-stream_loop") + 1] == "-1"
+    assert command[command.index("-t") + 1] == "5.000"
+    assert "-an" in command
+
+
 def test_parse_promo_json_keeps_asset_scenes_out_of_range(tmp_path: Path) -> None:
     raw = {
         "title": "X",

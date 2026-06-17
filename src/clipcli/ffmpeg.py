@@ -403,6 +403,49 @@ def render_image_segment(
     return output
 
 
+def render_video_segment(
+    clip: Path,
+    output: Path,
+    *,
+    duration: float,
+    mode: OutputMode = "original",
+    crop_x: float | None = None,
+    fps: int = 30,
+    crf: int = 18,
+    preset: str = "medium",
+) -> Path:
+    """Fit a generated clip (e.g. SeedDance b-roll) into a silent montage shot.
+
+    The clip is looped if shorter than the scene, framed to the montage size,
+    and stripped of audio so it crossfades like any other segment.
+    """
+    output.parent.mkdir(parents=True, exist_ok=True)
+    run(
+        [
+            "ffmpeg",
+            "-y",
+            "-stream_loop",
+            "-1",
+            "-i",
+            str(clip),
+            "-t",
+            f"{max(0.1, duration):.3f}",
+            "-vf",
+            f"{_montage_frame_filter(mode, crop_x=crop_x)},fps={fps},format=yuv420p",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            preset,
+            "-crf",
+            str(crf),
+            str(output),
+        ],
+        timeout=1800,
+    )
+    return output
+
+
 def make_end_card(
     output: Path,
     *,
@@ -678,6 +721,37 @@ def image_data_uri(path: Path) -> str:
     media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     return f"data:{media_type};base64,{encoded}"
+
+
+def compact_image_data_uri(
+    source: Path,
+    work_path: Path,
+    *,
+    max_width: int = 1280,
+    quality: int = 4,
+) -> str:
+    """Downscale to a small JPEG before encoding.
+
+    Image-to-video gateways reject oversized inline data URIs (fal 403s past
+    ~0.7 MB base64); a seed frame only needs the composition, not full res.
+    """
+    work_path = work_path.with_suffix(".jpg")
+    work_path.parent.mkdir(parents=True, exist_ok=True)
+    run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(source),
+            "-vf",
+            f"scale='min({max_width},iw)':-2:flags=lanczos",
+            "-q:v",
+            str(quality),
+            str(work_path),
+        ],
+        timeout=120,
+    )
+    return image_data_uri(work_path)
 
 
 def render_clip(

@@ -108,17 +108,19 @@ class ClipPlanResult(BaseModel):
 
 
 class PromoAsset(BaseModel):
-    """A visual shown instead of source footage: a real logo, a fetched/local image, or a generated one."""
+    """A visual shown instead of source footage: a real logo, a fetched/local image, a generated still, or a generated video."""
 
-    kind: Literal["generate", "logo", "url", "file"]
+    kind: Literal["generate", "logo", "url", "file", "video"]
     value: str
-    """Image prompt (generate), website domain (logo), direct image URL (url), or local path (file)."""
+    """Image prompt (generate), website domain (logo), direct image URL (url), local path (file), or SeedDance motion prompt (video)."""
     fit: Literal["cover", "card"] | None = None
     """Override framing: cover fills the frame, card centers on a backdrop. Defaults by kind."""
     card_color: str | None = None
     """Card backdrop color (hex like 0xFFFFFF); defaults to white for file, brand-dark otherwise."""
     accent: bool = True
     """Draw a thin brand accent line beneath a card-framed asset."""
+    image: str | None = None
+    """For kind="video": a seed-frame image path so SeedDance animates that exact still (image-to-video)."""
 
 
 class PromoScene(BaseModel):
