@@ -47,6 +47,20 @@ outputs/my-video/
   work/
 ```
 
+## Commands
+
+`clipcli` has five subcommands. Run `clipcli <command> --help` for the full option list of any of them.
+
+| Command | What it does |
+|---------|--------------|
+| `clipcli generate <video>` | Full short-form pipeline: transcribe → plan clips → render vertical clips with captions (optionally b-roll, audio enhancement, sound beds). |
+| `clipcli promo <video>` | Build a ~30–70s marketing montage: multi-shot edit, AI voiceover, on-screen key messages, music, end card. Supports `--doc` grounding and scene assets (logos / generated stills / SeedDance video). |
+| `clipcli plan <transcript>` | Select and score clips from an existing transcript with Gemini (cloud) or Gemma 4 (`--planner gemma`, local MLX). |
+| `clipcli normalize-transcript <whisperx.json>` | Convert a raw WhisperX JSON into clipcli's transcript format. |
+| `clipcli validate-plan <plan.json>` | Validate and normalize a clip plan without calling any API. |
+
+`generate` and `promo` take a source video; `plan`/`validate-plan`/`normalize-transcript` work on JSON artifacts so you can iterate without re-running expensive stages.
+
 ## Requirements
 
 - Python 3.11+
@@ -186,7 +200,12 @@ Plans may give any scene an `asset` instead of source footage:
             "fit": "cover|card", "card_color": "0xFFFFFF", "accent": true, "image": "seed-frame.png"}}
 ```
 
-`generate` creates a still with Nano Banana 2 (`gemini-3-pro-image`); `video` generates an animated b-roll clip with SeedDance 2.0 (set `image` to a still and SeedDance animates that exact frame — image-to-video); `logo`/`url` fetch online; `file` uses a local image — the cleanest path for **real partner logos**: drop the official files somewhere and reference them with `kind: file`, `fit: card`, and `card_color: 0xFFFFFF`. Generated stills fill the frame with a slow push-in; video clips are looped/trimmed to the scene length and stripped of audio; card-framed logos render centered with a thin brand accent line beneath (set `accent: false` to drop it). Assets are cached in `work/assets/`, so `--plan` re-renders don't regenerate or refetch. SeedDance needs `FAL_KEY` (or Ark credentials) — see the b-roll section.
+- `file` — a local image. **This is the recommended path for real partner logos:** drop the official files somewhere and reference them with `kind: file`, `fit: card`, and `card_color: 0xFFFFFF`. Animated/odd formats (`.gif`/`.webp`) are normalized to a still frame automatically.
+- `generate` — a still created with Nano Banana 2 (`gemini-3-pro-image`); fills the frame with a slow push-in. Needs `GEMINI_API_KEY`.
+- `video` — an animated b-roll clip from SeedDance 2.0, looped/trimmed to the scene and stripped of audio. Set `image` to a still and SeedDance animates that exact frame (image-to-video). Needs `FAL_KEY` (or Ark credentials) — see the b-roll section. If generation fails (e.g. exhausted balance) and an `image` seed is set, the scene falls back to that still so the render still completes.
+- `url` — a direct image URL; `logo` — a best-effort logo lookup by website domain. Both depend on the remote host serving the file, so they are less reliable than `file`; prefer `file` when you have the asset.
+
+Card-framed assets render centered on the card with a thin brand accent line beneath (set `accent: false` to drop it, e.g. for the main event logo). Generated stills get a slow push-in. Assets are cached in `work/assets/`, and voiceover takes in `work/voiceover/` are reused when the line is unchanged — so re-rendering after a tweak (`--plan`) doesn't regenerate art, re-call SeedDance, or re-bill TTS for lines that did not change.
 
 Voiceover providers:
 
@@ -358,6 +377,12 @@ Ask Gemini to plan clips from an existing transcript:
 clipcli plan transcript.json --out plan.json --clips 5
 ```
 
+Or plan locally with Gemma 4 on MLX, passing the source so it can listen to the audio when the transcript is noisy:
+
+```bash
+clipcli plan transcript.json --out plan.json --clips 5 --planner gemma --source input.mp4
+```
+
 Validate a raw Gemini JSON response or saved plan:
 
 ```bash
@@ -375,10 +400,15 @@ clipcli generate input.mp4 \
 
 ## CLI Reference
 
-Show all options:
+Every command prints its full option list with `--help`:
 
 ```bash
-clipcli generate --help
+clipcli --help                      # list all commands
+clipcli generate --help             # clip pipeline options
+clipcli promo --help                # montage options (assets, --doc, voiceover, music)
+clipcli plan --help                 # planning options (--planner gemini|gemma)
+clipcli normalize-transcript --help
+clipcli validate-plan --help
 ```
 
 Show version:
@@ -386,6 +416,19 @@ Show version:
 ```bash
 clipcli --version
 ```
+
+Most-used options at a glance:
+
+| Option | Commands | Purpose |
+|--------|----------|---------|
+| `--out, -o` | all that write output | Output directory. |
+| `--planner gemini\|gemma` | `generate`, `promo`, `plan` | Cloud Gemini or local Gemma 4 on MLX. |
+| `--mode` | `generate`, `promo` | `vertical_auto` (default), `vertical_left/right`, `original`. |
+| `--language` | `promo` | Voiceover + key-message language (e.g. `fr-CA`, `en`). |
+| `--doc` | `promo` | Ground planning in a `.docx`/`.md`/`.txt`; extract its images as assets. |
+| `--plan` | `generate`, `promo` | Reuse/hand-edit a saved plan and skip planning. |
+| `--transcript` | `generate`, `promo` | Reuse a transcript and skip transcription. |
+| `--vo-provider` | `promo` | `gemini` (default), `chatterbox` (local), `say` (offline). |
 
 ## Testing
 
