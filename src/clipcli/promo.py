@@ -224,13 +224,26 @@ def _render_scene_segment(
         mode=options.mode,
         fit=fit,
         card_color=card_color,
+        accent=asset.accent,
     )
+
+
+# Formats the still-image renderer can't loop directly; normalize to a PNG frame.
+_NON_STILL_SUFFIXES = {".gif", ".webp", ".apng"}
+
+
+def _asset_suffix(asset) -> str:
+    if asset.kind != "file":
+        return ".png"
+    suffix = Path(asset.value).suffix.lower()
+    if not suffix or suffix in _NON_STILL_SUFFIXES:
+        return ".png"
+    return suffix
 
 
 def _resolve_asset(asset, index: int, work_dir: Path) -> Path:
     """Fetch, copy, or generate a scene asset; cached so --plan re-renders stay cheap."""
-    suffix = Path(asset.value).suffix.lower() if asset.kind == "file" else ".png"
-    output = work_dir / "assets" / f"{index:02d}{suffix or '.png'}"
+    output = work_dir / "assets" / f"{index:02d}{_asset_suffix(asset)}"
     if output.exists():
         return output
     if asset.kind == "generate":
@@ -242,7 +255,11 @@ def _resolve_asset(asset, index: int, work_dir: Path) -> Path:
         if not source.exists():
             raise FileNotFoundError(f"Asset file not found: {source}")
         output.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, output)
+        if source.suffix.lower() in _NON_STILL_SUFFIXES:
+            # Animated/odd formats (e.g. a logo GIF) -> a single still frame.
+            ffmpeg.extract_frame(source, output, 0.0)
+        else:
+            shutil.copyfile(source, output)
         return output
     return assets.fetch_image_url(asset.value, output)
 

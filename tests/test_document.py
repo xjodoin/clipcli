@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from clipcli import promo
 from clipcli.document import DocumentContext, load_document
 from clipcli.gemini import _build_promo_prompt
 from clipcli.models import PromoAsset, PromoScene
@@ -95,6 +96,33 @@ def test_resolve_asset_missing_file_raises(tmp_path: Path) -> None:
     asset = PromoAsset(kind="file", value=str(tmp_path / "absent.png"))
     with pytest.raises(FileNotFoundError):
         _resolve_asset(asset, 1, tmp_path / "work")
+
+
+def test_resolve_asset_normalizes_gif_to_png_frame(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "logo.gif"
+    source.write_bytes(b"GIF89a")
+    captured = {}
+
+    def fake_extract_frame(src, output, at, **kwargs):
+        captured["src"] = src
+        captured["at"] = at
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"PNG")
+        return output
+
+    def forbid_copy(*args, **kwargs):
+        raise AssertionError("animated formats must be normalized, not copied verbatim")
+
+    monkeypatch.setattr(promo.ffmpeg, "extract_frame", fake_extract_frame)
+    monkeypatch.setattr(promo.shutil, "copyfile", forbid_copy)
+
+    asset = PromoAsset(kind="file", value=str(source))
+    output = _resolve_asset(asset, 7, tmp_path / "work")
+
+    # A logo GIF is decoded to a still PNG frame, not copied with its .gif suffix.
+    assert output == tmp_path / "work" / "assets" / "07.png"
+    assert captured["src"] == source.resolve()
+    assert captured["at"] == 0.0
 
 
 def test_promo_scene_accepts_fit_and_card_color() -> None:

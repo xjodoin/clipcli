@@ -322,16 +322,27 @@ def render_image_segment(
     crf: int = 18,
     preset: str = "medium",
     card_color: str = "0x0E1320",
+    accent: bool = True,
+    accent_color: str = "0x1FB6A6",
 ) -> Path:
     """Render a silent montage shot from a still asset.
 
     fit="cover" fills the frame with a slow push-in (generated visuals);
-    fit="card" centers the asset on a brand-dark card (logos stay crisp).
+    fit="card" centers the asset on a card with a thin brand accent line so a
+    real logo on its own white background still reads as a deliberate shot.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
     width, height = montage_dimensions(mode)
     frames = max(1, int(round(duration * fps)))
     if fit == "card":
+        accent_width = int(width * 0.16)
+        accent_y = int(height * 0.66)
+        overlay = "[0:v][asset]overlay=(W-w)/2:(H-h)/2"
+        if accent:
+            overlay += (
+                f"[card];[card]drawbox=x=(iw-{accent_width})/2:y={accent_y}:"
+                f"w={accent_width}:h=6:color={accent_color}:t=fill"
+            )
         command = [
             "ffmpeg",
             "-y",
@@ -347,9 +358,9 @@ def render_image_segment(
             str(image),
             "-filter_complex",
             (
-                f"[1:v]scale=w='min(iw*4,{int(width * 0.55)})':h='min(ih*4,{int(height * 0.38)})':"
+                f"[1:v]scale=w='min(iw*4,{int(width * 0.6)})':h='min(ih*4,{int(height * 0.42)})':"
                 "force_original_aspect_ratio=decrease:flags=lanczos[asset];"
-                "[0:v][asset]overlay=(W-w)/2:(H-h)/2,format=yuv420p[vout]"
+                f"{overlay},format=yuv420p[vout]"
             ),
             "-map",
             "[vout]",

@@ -117,6 +117,8 @@ class PromoAsset(BaseModel):
     """Override framing: cover fills the frame, card centers on a backdrop. Defaults by kind."""
     card_color: str | None = None
     """Card backdrop color (hex like 0xFFFFFF); defaults to white for file, brand-dark otherwise."""
+    accent: bool = True
+    """Draw a thin brand accent line beneath a card-framed asset."""
 
 
 class PromoScene(BaseModel):

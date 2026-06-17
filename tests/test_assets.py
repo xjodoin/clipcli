@@ -94,10 +94,11 @@ def test_resolve_asset_caches_and_routes(monkeypatch, tmp_path: Path) -> None:
 def test_render_scene_segment_uses_image_for_asset_scenes(monkeypatch, tmp_path: Path) -> None:
     captured = {}
 
-    def fake_image_segment(image, output, *, duration, mode, fit, card_color="0x0E1320"):
+    def fake_image_segment(image, output, *, duration, mode, fit, card_color="0x0E1320", accent=True):
         captured["image"] = image
         captured["fit"] = fit
         captured["card_color"] = card_color
+        captured["accent"] = accent
         captured["duration"] = duration
         return output
 
@@ -144,6 +145,19 @@ def test_render_image_segment_builds_card_and_cover_commands(monkeypatch, tmp_pa
 
     card, cover = commands
     assert any("overlay=(W-w)/2:(H-h)/2" in part for part in card)
+    assert any("drawbox=" in part for part in card)  # brand accent line under the logo
     assert card[card.index("-frames:v") + 1] == "150"
     assert any("zoompan=" in part for part in cover)
     assert any("force_original_aspect_ratio=increase" in part for part in cover)
+    assert not any("drawbox=" in part for part in cover)
+
+
+def test_render_image_segment_card_without_accent(monkeypatch, tmp_path: Path) -> None:
+    commands = []
+    monkeypatch.setattr(ffmpeg, "run", lambda command, timeout=None: commands.append(command))
+
+    ffmpeg.render_image_segment(
+        tmp_path / "logo.png", tmp_path / "card.mp4", duration=5.0, fit="card", accent=False
+    )
+
+    assert not any("drawbox=" in part for part in commands[0])

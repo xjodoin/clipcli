@@ -183,10 +183,10 @@ Plans may give any scene an `asset` instead of source footage:
 ```jsonc
 {"start": 0, "end": 5, "vo": "…", "key_message": "PARTENAIRE",
  "asset": {"kind": "generate|logo|url|file", "value": "image prompt | domain | URL | local path",
-            "fit": "cover|card", "card_color": "0xFFFFFF"}}
+            "fit": "cover|card", "card_color": "0xFFFFFF", "accent": true}}
 ```
 
-`generate` creates the visual with Nano Banana 2 (`gemini-3-pro-image`); `logo`/`url` fetch online; `file` uses a local image (for example one extracted from the document). Generated visuals fill the frame with a slow push-in; logos render centered on a clean card. Assets are cached in `work/assets/`, so `--plan` re-renders don't regenerate or refetch.
+`generate` creates the visual with Nano Banana 2 (`gemini-3-pro-image`); `logo`/`url` fetch online; `file` uses a local image — the cleanest path for **real partner logos**: drop the official files somewhere and reference them with `kind: file`, `fit: card`, and `card_color: 0xFFFFFF`. Generated visuals fill the frame with a slow push-in; card-framed logos render centered on the card with a thin brand accent line beneath (set `accent: false` to drop it, e.g. for the main event logo). Assets are cached in `work/assets/`, so `--plan` re-renders don't regenerate or refetch.
 
 Voiceover providers:
 
